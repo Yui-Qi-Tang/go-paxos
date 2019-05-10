@@ -32,7 +32,7 @@ func TestCreateNode(t *testing.T) {
 	const numberOfNodes = 3
 	nodes := make([]*Node, numberOfNodes)
 	rpcAddrs := make([]string, numberOfNodes)
-	// defer shutAllDown(nodes)
+	defer shutAllDown(nodes)
 
 	// 建立RPC 位置
 	for i:=0; i<numberOfNodes; i++ {
