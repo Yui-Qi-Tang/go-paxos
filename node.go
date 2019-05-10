@@ -13,17 +13,17 @@ import (
 
 type rpcAddress string
 
-type pState int
-// pState:
+type SeqState int
+// SeqState:
 const (
-	Decided   pState = iota + 1
+	Decided   SeqState = iota + 1
 	Pending        // not yet decided.
 	Forgotten      // decided but forgotten.
 )
 
 
 type proposal struct {
-	state pState        // proposal state
+	state SeqState        // proposal state
     proposalID   string      // proposal ID
 	acceptID   string      // accepted propose ID
 	acceptValue   interface{} // accept value
@@ -65,7 +65,7 @@ func (n *Node) Min() int {
 		}
 	}
 
-	// delete all instance smaller than min
+	// delete all proposal smaller than min
 	for k, proposal := range n.proposals {
 		if k > min {
 			continue
@@ -95,7 +95,7 @@ func (n *Node) Max() int {
 // RPC handler which must be satified rule: https://golang.org/pkg/net/rpc/, otherwise ignore
 // A proposer chooses a new proposal number n and send a request to
 // each member of some set of acceptors, asking it to respond with:
-func (n *Node) Prepare(pr *prepareRequest, reply *PrepareReply) error {
+func (n *Node) Prepare(pr *PrepareRequest, reply *PrepareReply) error {
 	n.mutex.Lock()
 	defer n.mutex.Unlock()
 	if proposal, exist := n.proposals[pr.Seq]; !exist {
@@ -126,6 +126,73 @@ func (n *Node) Prepare(pr *prepareRequest, reply *PrepareReply) error {
 	return nil
 }
 
+// Accept acceptor's accept(n, v) handler:
+func (n *Node) Accept(args *AcceptRequest, reply *AcceptReply) error {
+	
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
+
+	proposal, exist := n.proposals[args.Seq]
+	if !exist {
+		// if not exist,reply OK
+		n.proposals[args.Seq] = n.newProposal()
+		reply.Accepted = OK
+	} else {
+		if args.ProposalID >= proposal.proposalID {
+			reply.Accepted = OK
+		} else {
+			reply.Accepted = Reject
+		}
+	}
+
+	if reply.Accepted == OK {
+		// update proposer ID,accept ID and accept value
+		n.proposals[args.Seq].proposalID = args.ProposalID
+		n.proposals[args.Seq].acceptID = args.ProposalID
+		n.proposals[args.Seq].acceptValue = args.Value
+	} else {
+		fmt.Printf("%s:%d reject accept %v\n", n.neighbors[n.proposerNodeIndex], args.Seq, args.Value)
+	}
+	return nil
+}
+
+// Decide receive decide msg handler
+func (n *Node) Decide(args *DecideRequest, reply *DecideReply) error {
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
+
+	_, exist := n.proposals[args.Seq]
+	if !exist {
+		// learner
+		n.proposals[args.Seq] = n.newProposal()
+	}
+
+	// update proposer number,accept num and value,state
+	n.proposals[args.Seq].acceptValue = args.Value
+	n.proposals[args.Seq].acceptID = args.ProposalID
+	n.proposals[args.Seq].proposalID = args.ProposalID
+	n.proposals[args.Seq].state = Decided
+	// update the server done array
+	n.dones[args.ProposerNodeIndex] = args.Done
+
+
+	return nil
+}
+
+// Status node can check which proposal with seq that is reached a agreement
+func (n *Node) Status(seq int) (SeqState, interface{}) {
+	if seq < n.Min() {
+		return Forgotten, nil
+	}
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
+	proposal, exist := n.proposals[seq]
+	if !exist {
+		return Pending, nil
+	}
+
+	return proposal.state, proposal.acceptValue
+}
 
 // 發起提案，送出prepare request
 func (n *Node) propose(seq int, v interface{}) {
@@ -150,7 +217,6 @@ func (n *Node) propose(seq int, v interface{}) {
 			}
 
 		}
-		// 不知道 先擺著;我猜是確認是否有議案已經被通過了
 		state, _ := n.Status(seq)
 		if state == Decided {
 			decided = true
@@ -161,15 +227,20 @@ func (n *Node) propose(seq int, v interface{}) {
 }
 
 // generate new proposal
-func (px *Paxos) newProposal() *proposal {
-	return &proposal{n_a: "", n_p: "", v_a: nil, state: Pending}
+func (n *Node) newProposal() *proposal {
+	return &proposal{
+		state: Pending,
+		proposalID: "",
+		acceptID: "",
+		acceptValue: nil,
+	}
 }
 
 // generate a unique proposal num
 func (n *Node) genProposalID() string {
 	begin := time.Date(2019, time.May, 12, 00, 0, 0, 0, time.UTC)
 	duration := time.Now().Sub(begin)
-	return strconv.FormatInt(duration.Nanoseconds(), 10) + "-" + strconv.Itoa(n.me)
+	return strconv.FormatInt(duration.Nanoseconds(), 10) + "-" + strconv.Itoa(n.proposerNodeIndex)
 }
 
 // reutrn bool: got prepare; string: proposal id; interface{}: accept content
@@ -177,7 +248,7 @@ func (n *Node) sendPrepare(seq int, v interface{}) (bool, string, interface{}) {
 	// v is chozen by proposer,
 	myProposalID := n.genProposalID()
 
-	prepareReq := &prepareRequest{Seq: seq, ProposalID: n.genProposalID()}
+	prepareReq := &PrepareRequest{Seq: seq, ProposalID: n.genProposalID()}
 	numOfPrepareOK := 0 // numbers of prepare ok
 	replyProposalID := ""
 	var acceptedValue interface{}
@@ -186,7 +257,7 @@ func (n *Node) sendPrepare(seq int, v interface{}) (bool, string, interface{}) {
 	for _, node := range n.neighbors {
 		reply := &PrepareReply{AcceptedValue: nil, AcceptedProposalID: "", Promise: Reject}
 
-		call(node, "Paxos.Prepare", prepareReq, reply) // send prepare request to all nodes
+		call(node, "Node.Prepare", prepareReq, reply) // send prepare request to all nodes
 
 		// collect Promise ok
 		if reply.Promise == OK {
@@ -200,6 +271,33 @@ func (n *Node) sendPrepare(seq int, v interface{}) (bool, string, interface{}) {
 	}
 
 	return numOfPrepareOK >= n.majority(), myProposalID, acceptedValue
+
+}
+
+// 發送Decide給其他的節點
+func (n *Node) sendDecide(seq int, proposalID string, v interface{}) {
+	// update seq proposal
+	n.mutex.Lock()
+	n.proposals[seq].state = Decided
+	n.proposals[seq].proposalID = proposalID
+	n.proposals[seq].acceptID = proposalID
+	n.proposals[seq].acceptValue = v
+	n.mutex.Unlock()
+
+	decideReq := DecideRequest{
+		Seq: seq,
+		Value: v,
+		ProposalID: proposalID,
+		ProposerNodeIndex: n.proposerNodeIndex,
+		Done: n.dones[n.proposerNodeIndex],
+    }
+	for i, node := range n.neighbors {
+		// send decide to all peers(igonre me)
+		if i != n.proposerNodeIndex {
+			var reply DecideReply
+			call(node, "Node.Decide", &decideReq, &reply)
+		}
+	}
 
 }
 
@@ -231,12 +329,12 @@ func (n *Node) majority() int {
 
 // 準備發送Accept給acceptors, 並獲取accepted 數量是否是絕對多數
 func (n *Node) gotMajorityAccepted(seq int, proposalID string, v interface{}) bool {
-	arg := AcceptArgs{Seq: seq, PNum: proposalID, Value: v}
+	acceptReq := AcceptRequest{Seq: seq, ProposalID: proposalID, Value: v}
 	numOfAcceptedOK := 0
 
-	for _, peer := range n.peers {
+	for _, node := range n.neighbors {
 		var acceptorReplay AcceptReply
-		call(peer, "Paxos.Accept", &arg, &acceptorReplay)
+		call(node, "Node.Accept", &acceptReq, &acceptorReplay)
 		if acceptorReplay.Accepted == OK {
 			numOfAcceptedOK++
 		}

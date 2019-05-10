@@ -8,7 +8,7 @@ const (
 )
 
 // paxos prepare:
-type prepareRequest struct {
+type PrepareRequest struct {
 	Seq  int
 	ProposalID string
 }
@@ -20,25 +20,25 @@ type PrepareReply struct {
 }
 
 // paxos accept:
-type acceptRequest struct {
-	round   int
-	proposalID  string
-	value interface{}
+type AcceptRequest struct {
+	Seq   int
+	ProposalID  string
+	Value interface{}
 }
 
-type acceptReply struct {
-	accepted string
+type AcceptReply struct {
+	Accepted string
 }
 
 // paxos decide
-type decideRequest struct {
-	round   int
-	value interface{}
-	proposalID  string
-	proposerNodeIndex    int
-	done  int
+type DecideRequest struct {
+	Seq   int
+	Value interface{}
+	ProposalID  string
+	ProposerNodeIndex    int
+	Done  int
 }
 
-type decideReply struct {
+type DecideReply struct {
 	// this is blank
 }
