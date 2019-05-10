@@ -24,7 +24,7 @@ type proposal struct {
 	acceptValue   interface{} // accept value
 }
 
-// node Paxos中的運算節點(computing node in Paxos)
+// Node Paxos中的運算節點(computing node in Paxos)
 type Node struct {
 	mutex sync.Mutex
 	netListener  net.Listener
@@ -38,9 +38,7 @@ type Node struct {
     proposals map[int]*proposal
 }
 
-//
-// has this peer been asked to shut down?
-//
+
 func (n *Node) isdead() bool {
 	return atomic.LoadInt32(&n.dead) != 0
 }
@@ -57,6 +55,7 @@ func (n *Node) isunreliable() bool {
 	return atomic.LoadInt32(&n.unreliable) != 0
 }
 
+// ShutItselfDown close rpc server and clean fd file
 func (n *Node) ShutItselfDown() error {
 	atomic.StoreInt32(&n.dead, 1)
 	if n.netListener != nil {

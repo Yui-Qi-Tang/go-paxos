@@ -17,7 +17,6 @@ func shutAllDown(nodes []*Node) {
 
 func getPRCAddr(tag string, host int) string {
 	s := "./paxos-nodes/"
-	// s += strconv.Itoa(os.Getuid()) + "/"
 	os.Mkdir(s, 0777)
 	s += "px-"
 	s += strconv.Itoa(os.Getpid()) + "-"
