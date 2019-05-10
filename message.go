@@ -2,17 +2,21 @@ package paxos
 /* RPC message definition*/
 
 
+const (
+	OK     = "OK"
+	Reject = "Reject"
+)
 
 // paxos prepare:
 type prepareRequest struct {
-	round  int
-	proposalID string
+	Seq  int
+	ProposalID string
 }
 
-type prepareReply struct {
-	promise     string
-	acceptedProposalID  string
-	acceptValue interface{}
+type PrepareReply struct {
+	Promise     string
+	AcceptedProposalID  string
+	AcceptedValue interface{}
 }
 
 // paxos accept:
