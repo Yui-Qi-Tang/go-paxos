@@ -10,7 +10,7 @@ Thanks to the open course from MIT http://nil.csail.mit.edu/6.824/2015/labs/lab-
 
 Thanks!
 
-感謝**Keviv**大大幫忙修正我的英文文法XDDD
+感謝**Kevin**大大幫忙修正我的英文文法XDDD
 
 Go version: 1.12.5
 
