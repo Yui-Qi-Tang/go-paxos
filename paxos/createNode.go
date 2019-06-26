@@ -1,13 +1,13 @@
 package paxos
 
 import (
+	"log"
+	"math/rand"
 	"net"
 	"net/rpc"
 	"os"
-	"log"
-	"math/rand"
-	"syscall"
 	"sync/atomic"
+	"syscall"
 )
 
 func createNode(addresses []string, me int, rpcsrv *rpc.Server) *Node {
@@ -17,7 +17,6 @@ func createNode(addresses []string, me int, rpcsrv *rpc.Server) *Node {
 	pxNode.neighbors = addresses
 	pxNode.proposerNodeIndex = me
 
-
 	pxNode.proposals = map[int]*proposal{} // seq: proposal
 	pxNode.dones = make([]int, len(pxNode.neighbors))
 
@@ -25,7 +24,7 @@ func createNode(addresses []string, me int, rpcsrv *rpc.Server) *Node {
 		pxNode.dones[i] = -1 // init nodes decided seq
 	}
 	// end of node settings
-	
+
 	// RPC server settings
 	if rpcsrv != nil {
 		// caller will create socket &c
@@ -46,7 +45,7 @@ func createNode(addresses []string, me int, rpcsrv *rpc.Server) *Node {
 		// please do not change any of the following code,
 		// or do anything to subvert it.
 
-		// create a thread to accept RPC connections
+		// create a thread for RPC connection
 		go func() {
 			for pxNode.isdead() == false {
 				conn, err := pxNode.netListener.Accept()
