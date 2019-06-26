@@ -23,5 +23,8 @@ HINT:
     RPC node unix FD is created in paxos-nodes/
 
 Run test:
+    cd paxos/
+    go test
 
-    run all tests: go test -v
+TODO:
+    create library sample in main.go
