@@ -100,71 +100,6 @@ func (n *Node) Max() int {
 	return max
 }
 
-// Prepare for RPC method
-// RPC handler which must be satified rule: https://golang.org/pkg/net/rpc/, otherwise ignore
-// A proposer chooses a new proposal number n and send a request to
-// each member of some set of acceptors, asking it to respond with:
-func (n *Node) Prepare(pr *PrepareRequest, reply *PrepareReply) error {
-	n.mutex.Lock()
-	defer n.mutex.Unlock()
-	if proposal, exist := n.proposals[pr.Seq]; !exist {
-		// (a) A promise never again to accept a proposal number less than n, and
-		n.proposals[pr.Seq] = n.newProposal() // reported no proposals
-		proposal, _ = n.proposals[pr.Seq]
-		reply.Promise = OK
-	} else {
-		if pr.ProposalID > proposal.proposalID {
-			// (b) The proposal with highest number less than n that it has accepted
-			reply.Promise = OK
-		} else {
-			// reject n less than highest number it has accepted
-			reply.Promise = Reject
-		}
-	}
-
-	// response accepted proposal content
-
-	if reply.Promise == OK {
-		proposal := n.proposals[pr.Seq]
-		reply.AcceptedProposalID = proposal.proposalID
-		reply.AcceptedValue = proposal.acceptValue
-		n.proposals[pr.Seq].proposalID = pr.ProposalID
-	} else {
-		fmt.Printf("%s:%d reject prepare\n", n.neighbors[n.proposerNodeIndex], pr.Seq)
-	}
-	return nil
-}
-
-// Accept acceptor's accept(n, v) handler:
-func (n *Node) Accept(args *AcceptRequest, reply *AcceptReply) error {
-
-	n.mutex.Lock()
-	defer n.mutex.Unlock()
-
-	proposal, exist := n.proposals[args.Seq]
-	if !exist {
-		// if not exist,reply OK
-		n.proposals[args.Seq] = n.newProposal()
-		reply.Accepted = OK
-	} else {
-		if args.ProposalID >= proposal.proposalID {
-			reply.Accepted = OK
-		} else {
-			reply.Accepted = Reject
-		}
-	}
-
-	if reply.Accepted == OK {
-		// update proposer ID,accept ID and accept value
-		n.proposals[args.Seq].proposalID = args.ProposalID
-		n.proposals[args.Seq].acceptID = args.ProposalID
-		n.proposals[args.Seq].acceptValue = args.Value
-	} else {
-		fmt.Printf("%s:%d reject accept %v\n", n.neighbors[n.proposerNodeIndex], args.Seq, args.Value)
-	}
-	return nil
-}
-
 // Decide receive decide msg handler
 func (n *Node) Decide(args *DecideRequest, reply *DecideReply) error {
 	n.mutex.Lock()
@@ -202,38 +137,6 @@ func (n *Node) Status(seq int) (SeqState, interface{}) {
 	return proposal.state, proposal.acceptValue
 }
 
-// 發起提案，送出prepare request
-func (n *Node) propose(seq int, v interface{}) {
-	decided := false
-	// while not decided:
-	for !decided {
-		// HINT: replyValue 不一定是proposer提出的v，有可能是來自其他proposer被majority acceptors接受的v
-		// 透過prepare去得知目前被接受v，西瓜倚大邊XDDD
-		gotPromise, proposalID, replyValue := n.sendPrepare(seq, v) //choose n, unique and higher than any n seen so far send prepare(n) to all servers including self
-		if gotPromise {                                             // if prepare_ok(n, n_a, v_a) from majority
-			// v' = v_a with highest n_a or
-			// HINT: proposer會在這邊(獲得promise絕對多數)決定要送出的v是啥; v' 可能是別人的v 也可能是自己的v
-			if replyValue == nil {
-				//choose own v
-				replyValue = v
-			}
-			// send accept(n, v') to all; if accept_ok(n) from majority
-			if n.gotMajorityAccepted(seq, proposalID, replyValue) {
-				// send decided(v') to all
-				n.sendDecide(seq, proposalID, replyValue)
-				decided = true
-			}
-
-		}
-		state, _ := n.Status(seq)
-		if state == Decided {
-			decided = true
-		}
-
-	} // for
-
-}
-
 // generate new proposal
 func (n *Node) newProposal() *proposal {
 	return &proposal{
@@ -249,37 +152,6 @@ func (n *Node) genProposalID() string {
 	begin := time.Date(2019, time.May, 12, 00, 0, 0, 0, time.UTC)
 	duration := time.Now().Sub(begin)
 	return strconv.FormatInt(duration.Nanoseconds(), 10) + "-" + strconv.Itoa(n.proposerNodeIndex)
-}
-
-// reutrn bool: got prepare; string: proposal id; interface{}: accept content
-func (n *Node) sendPrepare(seq int, v interface{}) (bool, string, interface{}) {
-	// v is chozen by proposer,
-	myProposalID := n.genProposalID()
-
-	prepareReq := &PrepareRequest{Seq: seq, ProposalID: n.genProposalID()}
-	numOfPrepareOK := 0 // numbers of prepare ok
-	replyProposalID := ""
-	var acceptedValue interface{}
-	acceptedValue = nil
-
-	for _, node := range n.neighbors {
-		reply := &PrepareReply{AcceptedValue: nil, AcceptedProposalID: "", Promise: Reject}
-
-		call(node, "Node.Prepare", prepareReq, reply) // send prepare request to all nodes
-
-		// collect Promise ok
-		if reply.Promise == OK {
-			numOfPrepareOK++
-
-			if reply.AcceptedProposalID > replyProposalID {
-				replyProposalID = reply.AcceptedProposalID // 關注較大的議案ID
-				acceptedValue = reply.AcceptedValue        // 考慮majority set 尚未/已經 獲得accept request -> accept value會是 空的/有值
-			}
-		}
-	}
-
-	return numOfPrepareOK >= n.majority(), myProposalID, acceptedValue
-
 }
 
 // 發送Decide給其他的節點
@@ -333,22 +205,6 @@ func call(srv string, name string, args interface{}, reply interface{}) bool {
 // 超過半數; 任意兩個majority set必定有共通的成員，故，同一時間不可能有超過一個以上的議案被達成共識
 func (n *Node) majority() int {
 	return len(n.neighbors)/2 + 1
-}
-
-// 準備發送Accept給acceptors, 並獲取accepted 數量是否是絕對多數
-func (n *Node) gotMajorityAccepted(seq int, proposalID string, v interface{}) bool {
-	acceptReq := AcceptRequest{Seq: seq, ProposalID: proposalID, Value: v}
-	numOfAcceptedOK := 0
-
-	for _, node := range n.neighbors {
-		var acceptorReplay AcceptReply
-		call(node, "Node.Accept", &acceptReq, &acceptorReplay)
-		if acceptorReplay.Accepted == OK {
-			numOfAcceptedOK++
-		}
-	}
-
-	return numOfAcceptedOK >= n.majority()
 }
 
 func (n *Node) isdead() bool {
