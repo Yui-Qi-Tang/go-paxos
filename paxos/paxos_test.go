@@ -1,13 +1,12 @@
 package paxos
 
-
 import (
 	"testing"
 	// "strconv"
 	// "os"
+	"runtime"
 	"time"
 )
-
 
 func ndecided(t *testing.T, nodes []*Node, seq int) int {
 	count := 0
@@ -28,7 +27,6 @@ func ndecided(t *testing.T, nodes []*Node, seq int) int {
 	return count
 }
 
-
 func waitn(t *testing.T, nodes []*Node, seq int, wanted int) {
 	to := 10 * time.Millisecond
 	for iters := 0; iters < 30; iters++ {
@@ -47,7 +45,7 @@ func waitn(t *testing.T, nodes []*Node, seq int, wanted int) {
 }
 
 func TestRunPaxos(t *testing.T) {
-
+	runtime.GOMAXPROCS(4)
 	t.Logf("Test: Run Paxos ...\n")
 	const numberOfNodes = 3
 	nodes := make([]*Node, numberOfNodes)
@@ -55,10 +53,10 @@ func TestRunPaxos(t *testing.T) {
 	defer shutAllDown(nodes)
 
 	// 建立RPC 位置
-	for i:=0; i<numberOfNodes; i++ {
+	for i := 0; i < numberOfNodes; i++ {
 		rpcAddrs[i] = getPRCAddr("create_test", i)
 	}
-	
+
 	// 建立節點
 	for i := 0; i < numberOfNodes; i++ {
 		nodes[i] = createNode(rpcAddrs, i, nil)

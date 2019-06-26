@@ -1,11 +1,10 @@
 package paxos
 
 import (
-	"testing"
-	"strconv"
 	"os"
+	"strconv"
+	"testing"
 )
-
 
 func shutAllDown(nodes []*Node) {
 	for i := 0; i < len(nodes); i++ {
@@ -34,10 +33,10 @@ func TestCreateNode(t *testing.T) {
 	defer shutAllDown(nodes)
 
 	// 建立RPC 位置
-	for i:=0; i<numberOfNodes; i++ {
+	for i := 0; i < numberOfNodes; i++ {
 		rpcAddrs[i] = getPRCAddr("create_test", i)
 	}
-	
+
 	// 建立節點
 	for i := 0; i < numberOfNodes; i++ {
 		nodes[i] = createNode(rpcAddrs, i, nil)
