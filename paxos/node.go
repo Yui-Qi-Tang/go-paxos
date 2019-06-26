@@ -1,49 +1,58 @@
 package paxos
 
 import (
+	"fmt"
+	"net"
+	"net/rpc"
+	"strconv"
 	"sync"
 	"sync/atomic"
-	"net"
-	"time"
-	"strconv"
-	"net/rpc"
 	"syscall"
-	"fmt"
+	"time"
 )
 
 type rpcAddress string
 
 type SeqState int
+
 // SeqState:
 const (
 	Decided   SeqState = iota + 1
-	Pending        // not yet decided.
-	Forgotten      // decided but forgotten.
+	Pending            // not yet decided.
+	Forgotten          // decided but forgotten.
 )
 
-
 type proposal struct {
-	state SeqState        // proposal state
-    proposalID   string      // proposal ID
-	acceptID   string      // accepted propose ID
-	acceptValue   interface{} // accept value
+	state       SeqState    // proposal state
+	proposalID  string      // proposal ID
+	acceptID    string      // accepted propose ID
+	acceptValue interface{} // accept value
 }
 
 // Node Paxos中的運算節點(computing node in Paxos)
 type Node struct {
-	mutex sync.Mutex
-	netListener  net.Listener
-    neighbors []string
-	proposerNodeIndex int // this node
-	dead       int32 // for testing
-	unreliable int32 // for testing
-	rpcCount   int32 // for testing
-	
-	dones []int // 紀錄節點同意哪個議案seq
-    proposals map[int]*proposal
+	mutex             sync.Mutex
+	netListener       net.Listener
+	neighbors         []string
+	proposerNodeIndex int   // this node
+	dead              int32 // for testing
+	unreliable        int32 // for testing
+	rpcCount          int32 // for testing
+
+	dones     []int // 紀錄節點同意哪個議案seq
+	proposals map[int]*proposal
 }
 
+// Done ok to forget all instance <= seq
+func (n *Node) Done(seq int) {
+	// Your code here.
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
 
+	if seq > n.dones[n.proposerNodeIndex] {
+		n.dones[n.proposerNodeIndex] = seq
+	}
+}
 
 // Start 發起一個議案, seq是議案的流水號, v是希望被共識的值
 func (n *Node) Start(seq int, v interface{}) {
@@ -128,7 +137,7 @@ func (n *Node) Prepare(pr *PrepareRequest, reply *PrepareReply) error {
 
 // Accept acceptor's accept(n, v) handler:
 func (n *Node) Accept(args *AcceptRequest, reply *AcceptReply) error {
-	
+
 	n.mutex.Lock()
 	defer n.mutex.Unlock()
 
@@ -175,7 +184,6 @@ func (n *Node) Decide(args *DecideRequest, reply *DecideReply) error {
 	// update the server done array
 	n.dones[args.ProposerNodeIndex] = args.Done
 
-
 	return nil
 }
 
@@ -202,7 +210,7 @@ func (n *Node) propose(seq int, v interface{}) {
 		// HINT: replyValue 不一定是proposer提出的v，有可能是來自其他proposer被majority acceptors接受的v
 		// 透過prepare去得知目前被接受v，西瓜倚大邊XDDD
 		gotPromise, proposalID, replyValue := n.sendPrepare(seq, v) //choose n, unique and higher than any n seen so far send prepare(n) to all servers including self
-		if gotPromise {                                              // if prepare_ok(n, n_a, v_a) from majority
+		if gotPromise {                                             // if prepare_ok(n, n_a, v_a) from majority
 			// v' = v_a with highest n_a or
 			// HINT: proposer會在這邊(獲得promise絕對多數)決定要送出的v是啥; v' 可能是別人的v 也可能是自己的v
 			if replyValue == nil {
@@ -212,7 +220,7 @@ func (n *Node) propose(seq int, v interface{}) {
 			// send accept(n, v') to all; if accept_ok(n) from majority
 			if n.gotMajorityAccepted(seq, proposalID, replyValue) {
 				// send decided(v') to all
-				n.sendDecide(seq, proposalID, replyValue) // 收尾的Done有點看不懂，得想想
+				n.sendDecide(seq, proposalID, replyValue)
 				decided = true
 			}
 
@@ -229,9 +237,9 @@ func (n *Node) propose(seq int, v interface{}) {
 // generate new proposal
 func (n *Node) newProposal() *proposal {
 	return &proposal{
-		state: Pending,
-		proposalID: "",
-		acceptID: "",
+		state:       Pending,
+		proposalID:  "",
+		acceptID:    "",
 		acceptValue: nil,
 	}
 }
@@ -265,7 +273,7 @@ func (n *Node) sendPrepare(seq int, v interface{}) (bool, string, interface{}) {
 
 			if reply.AcceptedProposalID > replyProposalID {
 				replyProposalID = reply.AcceptedProposalID // 關注較大的議案ID
-				acceptedValue = reply.AcceptedValue      // 考慮majority set 尚未/已經 獲得accept request -> accept value會是 空的/有值
+				acceptedValue = reply.AcceptedValue        // 考慮majority set 尚未/已經 獲得accept request -> accept value會是 空的/有值
 			}
 		}
 	}
@@ -285,12 +293,12 @@ func (n *Node) sendDecide(seq int, proposalID string, v interface{}) {
 	n.mutex.Unlock()
 
 	decideReq := DecideRequest{
-		Seq: seq,
-		Value: v,
-		ProposalID: proposalID,
+		Seq:               seq,
+		Value:             v,
+		ProposalID:        proposalID,
 		ProposerNodeIndex: n.proposerNodeIndex,
-		Done: n.dones[n.proposerNodeIndex],
-    }
+		Done:              n.dones[n.proposerNodeIndex],
+	}
 	for i, node := range n.neighbors {
 		// send decide to all peers(igonre me)
 		if i != n.proposerNodeIndex {
@@ -324,7 +332,7 @@ func call(srv string, name string, args interface{}, reply interface{}) bool {
 
 // 超過半數; 任意兩個majority set必定有共通的成員，故，同一時間不可能有超過一個以上的議案被達成共識
 func (n *Node) majority() int {
-    return len(n.neighbors) / 2 + 1
+	return len(n.neighbors)/2 + 1
 }
 
 // 準備發送Accept給acceptors, 並獲取accepted 數量是否是絕對多數
