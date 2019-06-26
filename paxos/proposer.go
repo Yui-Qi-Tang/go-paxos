@@ -5,9 +5,13 @@ func (n *Node) gotMajorityAccepted(seq int, proposalID string, v interface{}) bo
 	acceptReq := AcceptRequest{Seq: seq, ProposalID: proposalID, Value: v}
 	numOfAcceptedOK := 0
 	// fmt.Println("show proposal =>", n.proposals[seq])
-	for _, node := range n.neighbors {
+	for i, node := range n.neighbors {
 		var acceptorReplay AcceptReply
-		call(node, "Node.Accept", &acceptReq, &acceptorReplay)
+		if i == n.proposerNodeIndex {
+			n.Accept(&acceptReq, &acceptorReplay)
+		} else {
+			call(node, "Node.Accept", &acceptReq, &acceptorReplay)
+		}
 		if acceptorReplay.Accepted == OK {
 			numOfAcceptedOK++
 		}
@@ -60,10 +64,13 @@ func (n *Node) sendPrepare(seq int, v interface{}) (bool, string, interface{}) {
 	var acceptedValue interface{}
 	acceptedValue = nil
 
-	for _, node := range n.neighbors {
+	for i, node := range n.neighbors {
 		reply := &PrepareReply{AcceptedValue: nil, AcceptedProposalID: "", Promise: Reject}
-
-		call(node, "Node.Prepare", prepareReq, reply) // send prepare request to all nodes
+		if i == n.proposerNodeIndex {
+			n.Prepare(prepareReq, reply)
+		} else {
+			call(node, "Node.Prepare", prepareReq, reply) // send prepare request to all nodes
+		}
 
 		// collect Promise ok
 		if reply.Promise == OK {
