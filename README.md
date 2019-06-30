@@ -23,6 +23,7 @@ HINT:
     RPC node unix FD is created in paxos-nodes/
 
 Run test:
+
     cd paxos/
     go test
 
